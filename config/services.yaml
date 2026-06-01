@@ -1,222 +1,375 @@
 datadog:
   api_key: "${DD_API_KEY}"
-  site: "datadoghq.com"  # Use datadoghq.eu for EU
-  
+  site: "datadoghq.eu"
+
 services:
-  travelduty:
+  payment-api:
+    enabled: true
+    rate_per_minute: 40
+    tags:
+      - "env:prod"
+      - "service:payment-api"
+      - "team:payments"
+      - "kube_namespace:production"
+      - "namespace:production"
+      - "kube_cluster_name:workshop-cluster"
+      - "kube_deployment:payment-api"
+      - "kube_container_name:api-server"
+      - "image_name:registry.example.com/payment-api"
+      - "image_tag:v2.1.0"
+      - "kube_ownerref_kind:replicaset"
+      - "pod_phase:running"
+      - "region:us-east-1"
+    hostnames:
+      - "worker-node-3a7f2"
+      - "worker-node-8b2c4"
+      - "worker-node-1d9e6"
+    log_patterns:
+      - level: "info"
+        weight: 10
+        templates:
+          - "POST /v1/payments/{payment_id}/charge completed in {duration_ms}ms"
+          - "GET /v1/payments/{payment_id} returned {status_code} in {duration_ms}ms"
+          - "Payment method tokenized for customer {customer_id}"
+          - "Refund initiated: transaction={transaction_id} amount={amount} {currency}"
+          - "Health check passed - all upstream dependencies healthy"
+        attributes:
+          payment_id: ["pay-7a2b3c", "pay-8d4e5f", "pay-9g6h7i", "pay-1j2k3l"]
+          duration_ms: [12, 45, 88, 150, 230]
+          status_code: [200, 201, 204]
+          customer_id: ["cust-40912", "cust-50183", "cust-60274", "cust-70365"]
+          transaction_id: ["txn-a1b2c3", "txn-d4e5f6", "txn-g7h8i9"]
+          amount: [19.99, 49.50, 125.00, 299.99, 750.00]
+          currency: ["USD", "EUR", "GBP"]
+
+      - level: "warn"
+        weight: 20
+        templates:
+          - "[K8s] ImagePullBackOff in namespace production - {pod_name} | cluster=workshop-cluster region=us-east-1 service=payment-api image={image} reason=ImagePullBackOff message=Failed to pull image: unauthorized"
+          - "[K8s] ImagePullBackOff in namespace production - {pod_name} | image={image} reason=ImagePullBackOff message=Failed to pull image: unauthorized"
+          - "source=kubernetes:workshop-cluster:production:pod/{pod_name} | ImagePullBackOff image={image} message=Failed to pull image: unauthorized"
+          - "Request latency elevated: {method} {endpoint} took {duration_ms}ms (threshold: {threshold_ms}ms)"
+          - "Stripe API response slow: {stripe_latency_ms}ms"
+        attributes:
+          pod_name: ["payment-api-6c9d2f4a1-j8n3p", "payment-api-7d4f8c9b5-x2k9m", "payment-api-7d4f8c9b5-r3m7q"]
+          image: ["registry.example.com/payment-api:v2.1.0"]
+          method: ["POST", "GET", "PUT", "DELETE"]
+          endpoint: ["/v1/payments/charge", "/v1/payments/refund", "/v1/methods/tokenize", "/v1/subscriptions"]
+          duration_ms: [800, 1200, 2100, 3500]
+          threshold_ms: [500]
+          stripe_latency_ms: [1500, 2800, 4200]
+
+      - level: "error"
+        weight: 60
+        templates:
+          - "[K8s] Pod CrashLoopBackOff in namespace production - {pod_name} | cluster=workshop-cluster region=us-east-1 service=payment-api container=api-server restart_count={restart_count} last_state=Error exit_code=1"
+          - "[K8s] Pod CrashLoopBackOff in namespace production - {pod_name} | container=api-server restart_count={restart_count} last_state=Error exit_code=1"
+          - "[K8s] Deployment Rollout Failed in namespace production - payment-api-deploy | cluster=workshop-cluster region=us-east-1 service=payment-api replicas_desired={replicas_desired} replicas_available={replicas_available} reason=ProgressDeadlineExceeded"
+          - "[K8s] Deployment Rollout Failed in namespace production - payment-api-deploy | replicas_desired={replicas_desired} replicas_available={replicas_available} reason=ProgressDeadlineExceeded"
+          - "source=kubernetes:workshop-cluster:production:pod/{pod_name} | CrashLoopBackOff container=api-server restart_count={restart_count} exit_code=1"
+          - "source=kubernetes:workshop-cluster:production:deployment/payment-api-deploy | ProgressDeadlineExceeded replicas_desired={replicas_desired} replicas_available={replicas_available}"
+        attributes:
+          pod_name: ["payment-api-7d4f8c9b5-x2k9m", "payment-api-6c9d2f4a1-j8n3p", "payment-api-7d4f8c9b5-r3m7q"]
+          restart_count: [3, 5, 8, 12]
+          replicas_desired: [5]
+          replicas_available: [0, 1, 2]
+
+      - level: "debug"
+        weight: 5
+        templates:
+          - "Incoming request: {method} {endpoint} client={client_id}"
+          - "Stripe idempotency key generated: {idempotency_key}"
+          - "Cache hit for payment method token {token_id}"
+          - "JWT claims validated for user {user_id}"
+        attributes:
+          method: ["POST", "GET", "PUT", "DELETE"]
+          endpoint: ["/v1/payments/charge", "/v1/payments/refund", "/v1/methods"]
+          client_id: ["client-merchant-01", "client-merchant-02", "client-internal"]
+          idempotency_key: ["idk-aaa111", "idk-bbb222", "idk-ccc333"]
+          token_id: ["tok-x1y2z3", "tok-a4b5c6"]
+          user_id: ["user-10001", "user-10002", "user-10003"]
+
+  payment-processor:
     enabled: true
     rate_per_minute: 30
     tags:
       - "env:prod"
-      - "service:travelduty"
-      - "team:platform"
+      - "service:payment-processor"
+      - "team:payments"
+      - "kube_namespace:production"
+      - "namespace:production"
+      - "kube_cluster_name:workshop-cluster"
+      - "kube_deployment:payment-processor"
+      - "kube_container_name:payment-processor"
+      - "image_name:registry.example.com/payment-processor"
+      - "image_tag:v2.1.0"
+      - "kube_ownerref_kind:replicaset"
+      - "pod_phase:running"
+      - "region:us-east-1"
     hostnames:
-      - "travelduty-api-01"
-      - "travelduty-api-02"
-      - "travelduty-sync-01"
+      - "worker-node-3a7f2"
+      - "worker-node-8b2c4"
     log_patterns:
       - level: "info"
-        weight: 60
-        templates:
-          - "API request completed in {duration_ms}ms"
-          - "Successfully synced {trip_count} trips from {provider}"
-          - "Cache hit for key {cache_key}"
-          - "Health check passed - all systems operational"
-          - "Trip notification sent to customer {customer_id}"
-        attributes:
-          duration_ms: [45, 150, 300, 500, 800]
-          trip_count: [10, 50, 150, 247, 324]
-          provider: ["amadeus", "sabre", "tripactions"]
-          cache_key: ["trips:abc", "users:xyz", "bookings:123"]
-          customer_id: ["cust-001", "cust-002", "cust-003", "cust-004"]
-          
-      - level: "warn"
-        weight: 25
-        templates:
-          - "API latency high: {latency_ms}ms (threshold: {threshold_ms}ms)"
-          - "Provider {provider} rate limit approaching: {current_rate}/{max_rate}"
-          - "Redis connection pool at {pool_percentage}% capacity"
-          - "Retry attempt {retry_count} for trip sync"
-          - "Database query slow: {query_time_ms}ms"
-        attributes:
-          latency_ms: [800, 1200, 1800, 2340]
-          threshold_ms: [500]
-          provider: ["amadeus", "sabre", "tripactions"]
-          current_rate: [850, 920, 980]
-          max_rate: [1000]
-          pool_percentage: [75, 85, 92]
-          retry_count: [1, 2, 3]
-          query_time_ms: [1200, 2500, 4100]
-          
-      - level: "error"
         weight: 10
         templates:
-          - "Failed to sync trip {trip_id}: {error_message}"
-          - "Database connection failed: {error_message}"
-          - "Provider {provider} API error: {status_code}"
-          - "Authentication failed for customer {customer_id}"
-          - "Worker crashed: {error_message}"
+          - "Job {job_id} completed: {job_type} for payment {payment_id} in {duration_ms}ms"
+          - "Batch settlement processed: {batch_size} transactions totaling {batch_total} {currency}"
+          - "Webhook dispatched: event={event_type} delivery_id={delivery_id}"
+          - "Retry succeeded for job {job_id} on attempt {attempt}"
+          - "Queue depth nominal: {queue_name} has {queue_depth} pending jobs"
         attributes:
-          trip_id: ["trip-12345", "trip-67890", "trip-11111", "trip-99999"]
-          error_message: ["Connection timeout", "Invalid response", "Rate limit exceeded", "Database deadlock", "Out of memory"]
-          provider: ["amadeus", "sabre", "tripactions"]
-          status_code: [500, 502, 503, 429]
-          customer_id: ["cust-001", "cust-002", "cust-003"]
-          
-      - level: "debug"
-        weight: 5
-        templates:
-          - "Processing trip sync job {job_id}"
-          - "Cache miss for key {cache_key}, fetching from database"
-          - "Worker {worker_id} polling queue"
-          - "JWT token validated for user {user_id}"
-        attributes:
-          job_id: ["job-aaa", "job-bbb", "job-ccc"]
-          cache_key: ["trips:abc", "users:xyz"]
-          worker_id: [1, 2, 3, 4, 5]
-          user_id: ["user-123", "user-456", "user-789"]
-
-  payment-service:
-    enabled: true
-    rate_per_minute: 20
-    tags:
-      - "env:prod"
-      - "service:payment-service"
-      - "team:finance"
-    hostnames:
-      - "payment-api-01"
-      - "payment-api-02"
-    log_patterns:
-      - level: "info"
-        weight: 70
-        templates:
-          - "Payment processed successfully: amount={amount} currency={currency}"
-          - "Refund issued for transaction {transaction_id}"
-          - "Payment method verified for customer {customer_id}"
-          - "Stripe webhook received: event={event_type}"
-        attributes:
-          amount: [10.99, 25.50, 100.00, 499.99, 1250.00]
+          job_id: ["job-aa1122", "job-bb3344", "job-cc5566", "job-dd7788"]
+          job_type: ["charge", "refund", "settlement", "payout", "webhook_dispatch"]
+          payment_id: ["pay-7a2b3c", "pay-8d4e5f", "pay-9g6h7i"]
+          duration_ms: [50, 120, 350, 800, 1500]
+          batch_size: [25, 50, 100, 250]
+          batch_total: [4999.50, 12750.00, 38200.75, 95000.00]
           currency: ["USD", "EUR", "GBP"]
-          transaction_id: ["txn-abc123", "txn-def456", "txn-ghi789"]
-          customer_id: ["cust-001", "cust-002", "cust-003"]
-          event_type: ["payment_intent.succeeded", "charge.succeeded", "refund.created"]
-          
+          event_type: ["payment.completed", "refund.processed", "payout.sent", "dispute.created"]
+          delivery_id: ["dlv-111aaa", "dlv-222bbb", "dlv-333ccc"]
+          attempt: [2, 3]
+          queue_name: ["charges", "refunds", "settlements", "webhooks"]
+          queue_depth: [3, 12, 45, 120]
+
       - level: "warn"
         weight: 20
         templates:
-          - "Payment verification taking longer than expected: {duration_ms}ms"
-          - "Unusual payment pattern detected for customer {customer_id}"
-          - "Stripe API rate limit warning: {rate_remaining}/{rate_limit}"
+          - "[K8s] HPA Max Replicas in namespace production - payment-processor-autoscaler | cluster=workshop-cluster region=us-east-1 service=payment-processor min_replicas=2 max_replicas=10 current_replicas={current_replicas} cpu_utilization={cpu_utilization}%"
+          - "[K8s] HPA Max Replicas in namespace production - payment-processor-autoscaler | current_replicas={current_replicas} max_replicas=10 cpu_utilization={cpu_utilization}%"
+          - "[K8s] PVC Pending in namespace production - data-volume-payment-processor | cluster=workshop-cluster region=us-east-1 service=payment-processor storage_class=gp3 requested_size=100Gi reason=ProvisioningFailed"
+          - "[K8s] PVC Pending in namespace production - data-volume-payment-processor | storage_class=gp3 requested_size=100Gi reason=ProvisioningFailed"
+          - "source=kubernetes:workshop-cluster:production:hpa/payment-processor-autoscaler | ScalingLimited current_replicas={current_replicas} max_replicas=10 cpu_utilization={cpu_utilization}%"
+          - "source=kubernetes:workshop-cluster:production:pvc/data-volume-payment-processor | Pending storage_class=gp3 requested_size=100Gi reason=ProvisioningFailed"
         attributes:
-          duration_ms: [3000, 5000, 8000]
-          customer_id: ["cust-001", "cust-002"]
-          rate_remaining: [50, 100, 200]
-          rate_limit: [1000]
-          
-      - level: "error"
-        weight: 10
-        templates:
-          - "Payment failed: {error_code} - {error_message}"
-          - "Stripe webhook signature verification failed"
-          - "Refund processing failed for transaction {transaction_id}"
-        attributes:
-          error_code: ["card_declined", "insufficient_funds", "payment_method_not_available"]
-          error_message: ["Card declined by issuer", "Insufficient funds", "Payment method expired"]
-          transaction_id: ["txn-abc123", "txn-def456"]
+          current_replicas: [10]
+          cpu_utilization: [92, 95, 98]
 
-  notification-worker:
+      - level: "error"
+        weight: 60
+        templates:
+          - "[K8s] Node NotReady in namespace production - {node_name} | cluster=workshop-cluster region=us-east-1 service=payment-processor condition=NotReady kubelet_status=Unknown"
+          - "[K8s] Node NotReady in namespace production - {node_name} | condition=NotReady last_heartbeat=2025-01-15T10:30:00.000Z kubelet_status=Unknown"
+          - "[K8s] Node NotReady in namespace production - {node_name} | service=payment-processor condition=NotReady kubelet_status=Unknown"
+          - "source=kubernetes:workshop-cluster:production:node/{node_name} | NotReady condition=NotReady kubelet_status=Unknown"
+        attributes:
+          node_name: ["worker-node-3a7f2", "worker-node-8b2c4", "worker-node-1d9e6"]
+
+      - level: "debug"
+        weight: 5
+        templates:
+          - "Worker {worker_id} polling queue {queue_name}"
+          - "Job {job_id} dequeued: type={job_type} priority={priority}"
+          - "Acquiring database lock for transaction {transaction_id}"
+          - "Stripe request: POST /v1/charges idempotency_key={idempotency_key}"
+        attributes:
+          worker_id: ["worker-01", "worker-02", "worker-03", "worker-04"]
+          queue_name: ["charges", "refunds", "settlements", "webhooks"]
+          job_id: ["job-aa1122", "job-bb3344", "job-cc5566"]
+          job_type: ["charge", "refund", "settlement"]
+          priority: ["high", "normal", "low"]
+          transaction_id: ["txn-a1b2c3", "txn-d4e5f6", "txn-g7h8i9"]
+          idempotency_key: ["idk-aaa111", "idk-bbb222", "idk-ccc333"]
+
+  payment-reconciliation:
     enabled: true
-    rate_per_minute: 45
+    rate_per_minute: 15
     tags:
       - "env:prod"
-      - "service:notification-worker"
-      - "team:platform"
+      - "service:payment-reconciliation"
+      - "team:payments"
+      - "kube_namespace:production"
+      - "namespace:production"
+      - "kube_cluster_name:workshop-cluster"
+      - "kube_cronjob:payment-reconciliation"
+      - "kube_container_name:worker"
+      - "image_name:registry.example.com/payment-reconciliation"
+      - "image_tag:v2.1.0"
+      - "kube_ownerref_kind:job"
+      - "pod_phase:running"
+      - "region:us-east-1"
     hostnames:
-      - "notification-worker-01"
-      - "notification-worker-02"
-      - "notification-worker-03"
+      - "worker-node-8b2c4"
+      - "worker-node-1d9e6"
     log_patterns:
       - level: "info"
-        weight: 75
+        weight: 10
         templates:
-          - "Email sent successfully to {recipient}"
-          - "SMS delivered: message_id={message_id}"
-          - "Push notification sent to {device_count} devices"
-          - "Notification queued: type={notification_type}"
+          - "Reconciliation run {run_id} completed: {matched_count}/{total_count} transactions matched"
+          - "Stripe payout {payout_id} reconciled: {transaction_count} transactions, net={net_amount} {currency}"
+          - "Daily reconciliation summary: matched={matched_count} unmatched={unmatched_count} disputed={disputed_count}"
+          - "Ledger entry created: type={entry_type} amount={amount} {currency}"
+          - "Balance snapshot recorded: available={available_balance} pending={pending_balance} {currency}"
         attributes:
-          recipient: ["user@example.com", "admin@example.com", "support@example.com"]
-          message_id: ["msg-111", "msg-222", "msg-333"]
-          device_count: [1, 2, 5, 10]
-          notification_type: ["trip_reminder", "payment_confirmation", "booking_update"]
-          
+          run_id: ["recon-20260223-001", "recon-20260223-002", "recon-20260223-003"]
+          matched_count: [980, 1245, 2100, 4500]
+          total_count: [1000, 1260, 2120, 4520]
+          unmatched_count: [2, 5, 12, 20]
+          disputed_count: [0, 1, 3]
+          payout_id: ["po-aaa111", "po-bbb222", "po-ccc333"]
+          transaction_count: [150, 320, 500]
+          net_amount: [12450.00, 28900.50, 67200.75]
+          currency: ["USD", "EUR", "GBP"]
+          entry_type: ["credit", "debit", "adjustment", "fee", "chargeback"]
+          amount: [19.99, 125.00, 499.99, 1250.00]
+          available_balance: [45200.00, 89500.50, 125000.00]
+          pending_balance: [3200.00, 7800.25, 15000.00]
+
       - level: "warn"
         weight: 15
         templates:
-          - "Notification delivery delayed: queue_depth={queue_depth}"
-          - "SendGrid rate limit approaching: {current_rate}/{max_rate}"
-          - "Retry attempt {retry_count} for notification {notification_id}"
+          - "Unmatched transaction detected: {transaction_id} amount={amount} {currency} (age={age_hours}h)"
+          - "Reconciliation run {run_id} mismatch rate above threshold: {mismatch_rate}%"
+          - "Stripe balance drift detected: expected={expected_balance} actual={actual_balance} {currency}"
+          - "Late settlement detected: payout {payout_id} delayed by {delay_hours} hours"
         attributes:
-          queue_depth: [500, 1000, 2500]
-          current_rate: [8500, 9200, 9800]
-          max_rate: [10000]
-          retry_count: [1, 2, 3]
-          notification_id: ["notif-aaa", "notif-bbb"]
-          
-      - level: "error"
-        weight: 10
-        templates:
-          - "Failed to send email: {error_message}"
-          - "SMS delivery failed: {provider} returned {status_code}"
-          - "Push notification failed: invalid device token"
-        attributes:
-          error_message: ["SMTP connection refused", "Invalid recipient", "Rate limit exceeded"]
-          provider: ["twilio", "nexmo"]
-          status_code: [400, 429, 500]
+          transaction_id: ["txn-a1b2c3", "txn-d4e5f6", "txn-g7h8i9"]
+          amount: [49.99, 125.00, 750.00]
+          currency: ["USD", "EUR", "GBP"]
+          age_hours: [24, 48, 72, 96]
+          run_id: ["recon-20260223-001", "recon-20260223-002"]
+          mismatch_rate: [1.5, 2.3, 3.8, 5.1]
+          expected_balance: [45200.00, 89500.50]
+          actual_balance: [45180.01, 89475.25]
+          payout_id: ["po-aaa111", "po-bbb222"]
+          delay_hours: [6, 12, 24, 48]
 
-  api-gateway:
-    enabled: false
-    rate_per_minute: 100
-    tags:
-      - "env:prod"
-      - "service:api-gateway"
-      - "team:platform"
-    hostnames:
-      - "gateway-01"
-      - "gateway-02"
-      - "gateway-03"
-    log_patterns:
-      - level: "info"
-        weight: 85
-        templates:
-          - "Request routed: {method} {path} -> {backend_service}"
-          - "Response: status={status_code} duration={duration_ms}ms"
-          - "Rate limit check passed for client {client_id}"
-        attributes:
-          method: ["GET", "POST", "PUT", "DELETE"]
-          path: ["/v1/trips", "/v1/payments", "/v1/users", "/v1/bookings"]
-          backend_service: ["travelduty", "payment-service", "user-service"]
-          status_code: [200, 201, 204]
-          duration_ms: [15, 45, 120, 250]
-          client_id: ["client-aaa", "client-bbb", "client-ccc"]
-          
-      - level: "warn"
-        weight: 10
-        templates:
-          - "High request rate from client {client_id}: {request_count} req/min"
-          - "Backend {backend_service} latency high: {latency_ms}ms"
-        attributes:
-          client_id: ["client-aaa", "client-bbb"]
-          request_count: [850, 950, 1050]
-          backend_service: ["travelduty", "payment-service"]
-          latency_ms: [800, 1200, 2000]
-          
       - level: "error"
+        weight: 60
+        templates:
+          - "[K8s] OOMKilled in namespace production - {pod_name} | cluster=workshop-cluster region=us-east-1 service=payment-reconciliation container=worker memory_limit=512Mi memory_usage={memory_usage} exit_code=137"
+          - "[K8s] OOMKilled in namespace production - {pod_name} | container=worker memory_limit=512Mi memory_usage={memory_usage} exit_code=137"
+          - "[K8s] Service Endpoint NotReady in namespace production - payment-reconciliation-svc | cluster=workshop-cluster region=us-east-1 service=payment-reconciliation port=8080 ready_endpoints={ready_endpoints} total_endpoints=3"
+          - "[K8s] Service Endpoint NotReady in namespace production - payment-reconciliation-svc | port=8080 ready_endpoints={ready_endpoints} total_endpoints=3"
+          - "source=kubernetes:workshop-cluster:production:container/{pod_name} | OOMKilled container=worker memory_limit=512Mi memory_usage={memory_usage} exit_code=137"
+          - "source=kubernetes:workshop-cluster:production:service/payment-reconciliation-svc | EndpointNotReady port=8080 ready_endpoints={ready_endpoints} total_endpoints=3"
+        attributes:
+          pod_name: ["payment-reconciliation-5b8c1d3e7-q4w2r", "payment-reconciliation-5b8c1d3e7-k8j3p"]
+          memory_usage: ["548Mi", "560Mi", "572Mi", "590Mi"]
+          ready_endpoints: [0, 1]
+
+      - level: "debug"
         weight: 5
         templates:
-          - "Request failed: status={status_code} error={error_message}"
-          - "Backend {backend_service} unavailable"
-          - "Authentication failed: invalid JWT token"
+          - "Starting reconciliation run {run_id} for period {period}"
+          - "Fetching Stripe transactions: page {page}/{total_pages}"
+          - "Matching transaction {transaction_id} against ledger entries"
+          - "Reconciliation checkpoint saved: {matched_count} matched so far"
         attributes:
-          status_code: [401, 403, 500, 502, 503]
-          error_message: ["Unauthorized", "Forbidden", "Internal server error", "Bad gateway"]
-          backend_service: ["travelduty", "payment-service"]
+          run_id: ["recon-20260223-001", "recon-20260223-002"]
+          period: ["2026-02-22", "2026-02-23"]
+          page: [1, 2, 3, 5, 10]
+          total_pages: [12, 25, 50]
+          transaction_id: ["txn-a1b2c3", "txn-d4e5f6", "txn-g7h8i9"]
+          matched_count: [100, 500, 1000, 2000]
+
+  platform-engineering:
+    enabled: true
+    rate_per_minute: 30
+    tags:
+      - "env:prod"
+      - "service:platform-engineering"
+      - "team:platform-engineering"
+      - "kube_namespace:kube-system"
+      - "namespace:kube-system"
+      - "kube_cluster_name:workshop-cluster"
+      - "kube_deployment:platform-controller"
+      - "kube_container_name:controller"
+      - "image_name:registry.example.com/platform-controller"
+      - "image_tag:v1.8.3"
+      - "kube_ownerref_kind:replicaset"
+      - "pod_phase:running"
+      - "region:us-east-1"
+    hostnames:
+      - "control-plane-master-01"
+      - "control-plane-master-02"
+      - "control-plane-master-03"
+    log_patterns:
+      - level: "info"
+        weight: 10
+        templates:
+          - "Reconcile loop completed for {resource_kind}/{resource_name} in {duration_ms}ms"
+          - "Certificate rotated successfully: {cert_name} expires={new_expiry}"
+          - "Cluster autoscaler scaled node group {nodegroup} from {old_size} to {new_size}"
+          - "etcd snapshot completed: size={snapshot_size_mb}MB duration={duration_ms}ms"
+          - "Ingress {ingress_name} reconciled: {backend_count} backends healthy"
+          - "Leader election won by controller {controller_id} for {resource_kind}"
+        attributes:
+          resource_kind: ["Ingress", "Certificate", "NodePool", "ClusterIssuer", "NetworkPolicy"]
+          resource_name: ["platform-ingress", "wildcard-prod", "core-pool", "letsencrypt-prod", "deny-cross-ns"]
+          duration_ms: [12, 45, 120, 280, 450]
+          cert_name: ["wildcard.workshop-cluster.example.com", "api.workshop-cluster.example.com", "grafana.workshop-cluster.example.com"]
+          new_expiry: ["2026-08-27T00:00:00Z", "2026-09-15T00:00:00Z", "2026-11-02T00:00:00Z"]
+          nodegroup: ["core-pool", "spot-pool", "gpu-pool"]
+          old_size: [3, 5, 8]
+          new_size: [5, 8, 12]
+          snapshot_size_mb: [128, 256, 412, 580]
+          ingress_name: ["platform-ingress", "api-ingress", "grafana-ingress"]
+          backend_count: [3, 5, 8]
+          controller_id: ["platform-controller-7c4d8b9f-a1b2c", "platform-controller-7c4d8b9f-d3e4f"]
+
+      - level: "warn"
+        weight: 20
+        templates:
+          - "[K8s] Node Memory Pressure in namespace kube-system - {node_name} | cluster=workshop-cluster region=us-east-1 service=platform-engineering condition=MemoryPressure available_memory={available_memory}"
+          - "[K8s] Node Disk Pressure in namespace kube-system - {node_name} | cluster=workshop-cluster region=us-east-1 service=platform-engineering condition=DiskPressure available_disk={available_disk}"
+          - "[K8s] Certificate Expiring Soon in namespace kube-system - {cert_name} | cluster=workshop-cluster region=us-east-1 service=platform-engineering days_until_expiry={days_until_expiry} issuer=letsencrypt-prod"
+          - "[K8s] API Server Latency Elevated in namespace kube-system - kube-apiserver | cluster=workshop-cluster region=us-east-1 service=platform-engineering p99_latency_ms={api_latency_ms} threshold_ms=500"
+          - "source=kubernetes:workshop-cluster:kube-system:node/{node_name} | MemoryPressure available_memory={available_memory} condition=MemoryPressure"
+          - "source=kubernetes:workshop-cluster:kube-system:certificate/{cert_name} | ExpiringSoon days_until_expiry={days_until_expiry}"
+          - "Ingress 5xx rate elevated: {ingress_name} returning {error_rate}% errors (threshold: 1%)"
+        attributes:
+          node_name: ["worker-node-3a7f2", "worker-node-8b2c4", "worker-node-1d9e6"]
+          available_memory: ["120Mi", "180Mi", "240Mi"]
+          available_disk: ["1.2Gi", "2.4Gi", "3.8Gi"]
+          cert_name: ["wildcard.workshop-cluster.example.com", "api.workshop-cluster.example.com"]
+          days_until_expiry: [3, 5, 7, 10]
+          api_latency_ms: [620, 850, 1100, 1450]
+          ingress_name: ["platform-ingress", "api-ingress"]
+          error_rate: [1.8, 2.5, 4.2, 7.1]
+
+      - level: "error"
+        weight: 60
+        templates:
+          - "[K8s] etcd Leader Election Failure in namespace kube-system - etcd-cluster | cluster=workshop-cluster region=us-east-1 service=platform-engineering current_leader=none election_attempts={election_attempts} quorum_lost=true"
+          - "[K8s] etcd Leader Election Failure in namespace kube-system - etcd-cluster | current_leader=none election_attempts={election_attempts} quorum_lost=true"
+          - "[K8s] Certificate Expired in namespace kube-system - {cert_name} | cluster=workshop-cluster region=us-east-1 service=platform-engineering expired_at={expired_at} tls_handshake_failures={tls_failures}"
+          - "[K8s] Certificate Expired in namespace kube-system - {cert_name} | expired_at={expired_at} tls_handshake_failures={tls_failures}"
+          - "[K8s] Ingress Controller Unhealthy in namespace kube-system - nginx-ingress-controller | cluster=workshop-cluster region=us-east-1 service=platform-engineering healthy_replicas={healthy_replicas} desired_replicas=3 5xx_rate={error_rate}%"
+          - "[K8s] Control Plane Unreachable in namespace kube-system - kube-apiserver | cluster=workshop-cluster region=us-east-1 service=platform-engineering endpoint={apiserver_endpoint} reason=ConnectionRefused consecutive_failures={consecutive_failures}"
+          - "[K8s] Node NotReady in namespace kube-system - {node_name} | cluster=workshop-cluster region=us-east-1 service=platform-engineering condition=NotReady kubelet_status=Unknown last_heartbeat={last_heartbeat}"
+          - "source=kubernetes:workshop-cluster:kube-system:etcd/etcd-cluster | LeaderElectionFailed election_attempts={election_attempts} quorum_lost=true"
+          - "source=kubernetes:workshop-cluster:kube-system:certificate/{cert_name} | Expired expired_at={expired_at} tls_handshake_failures={tls_failures}"
+          - "source=kubernetes:workshop-cluster:kube-system:deployment/nginx-ingress-controller | Unhealthy healthy_replicas={healthy_replicas} desired_replicas=3"
+          - "source=kubernetes:workshop-cluster:kube-system:apiserver/kube-apiserver | Unreachable endpoint={apiserver_endpoint} consecutive_failures={consecutive_failures}"
+        attributes:
+          election_attempts: [3, 5, 8, 12]
+          cert_name: ["wildcard.workshop-cluster.example.com", "api.workshop-cluster.example.com", "grafana.workshop-cluster.example.com"]
+          expired_at: ["2026-05-26T18:42:00Z", "2026-05-27T03:15:00Z"]
+          tls_failures: [42, 128, 340, 890]
+          healthy_replicas: [0, 1]
+          error_rate: [18.5, 32.1, 51.7, 78.9]
+          apiserver_endpoint: ["https://10.0.1.10:6443", "https://10.0.1.11:6443", "https://10.0.1.12:6443"]
+          consecutive_failures: [5, 12, 28, 60]
+          node_name: ["worker-node-3a7f2", "worker-node-8b2c4", "worker-node-1d9e6"]
+          last_heartbeat: ["2026-05-27T10:18:00Z", "2026-05-27T10:22:00Z"]
+
+      - level: "debug"
+        weight: 5
+        templates:
+          - "Watcher event received: kind={resource_kind} action={action} resource={resource_name}"
+          - "Leader election heartbeat: lease_holder={controller_id} lease_duration={lease_duration_s}s"
+          - "Reconcile queue depth: {queue_depth} items pending for {controller_name}"
+          - "Webhook admission review: kind={resource_kind} operation={action} allowed={allowed}"
+          - "Cluster role binding resolved: subject={service_account} role={role_name}"
+        attributes:
+          resource_kind: ["Ingress", "Certificate", "Node", "ConfigMap", "Secret"]
+          action: ["ADDED", "MODIFIED", "DELETED"]
+          resource_name: ["platform-ingress", "wildcard-prod", "worker-node-3a7f2", "platform-config"]
+          controller_id: ["platform-controller-7c4d8b9f-a1b2c", "platform-controller-7c4d8b9f-d3e4f"]
+          lease_duration_s: [15, 30, 60]
+          queue_depth: [0, 3, 12, 45]
+          controller_name: ["cert-manager", "ingress-controller", "cluster-autoscaler", "node-controller"]
+          allowed: ["true", "false"]
+          service_account: ["system:serviceaccount:kube-system:cert-manager", "system:serviceaccount:kube-system:ingress-controller"]
+          role_name: ["cluster-admin", "cert-manager-controller", "ingress-controller"]
